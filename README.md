@@ -2,7 +2,7 @@
 
 ```go
 tbx := New("vt.norm.vcf.gz")
-for str = range t.Get("1:50000-90000") {
+for str := range t.Get("1:50000-90000") {
 	fmt.Println(str)
 }
 ```
