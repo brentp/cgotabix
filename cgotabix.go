@@ -26,11 +26,23 @@ hts_itr_t *tabix_itr_querys(tbx_t *tbx, char *s){
 
 */
 import "C"
-import "unsafe"
+import (
+	"runtime"
+	"unsafe"
+)
 
 type Tabix struct {
 	tbx *C.tbx_t
 	htf *C.htsFile
+}
+
+func tabixCloser(t *Tabix) {
+	if t.tbx != nil {
+		C.tbx_destroy(t.tbx)
+	}
+	if t.htf != nil {
+		C.hts_close(t.htf)
+	}
 }
 
 // New takes a path to a bgziped (and tabixed file) and returns the tabix struct.
@@ -41,6 +53,7 @@ func New(path string) Tabix {
 	t.tbx = C.tbx_index_load(cs)
 	mode := C.char('r')
 	t.htf = C.hts_open(cs, &mode)
+	runtime.SetFinalizer(&t, tabixCloser)
 	return t
 }
 
@@ -50,17 +63,18 @@ func (t Tabix) Get(region string) chan string {
 	cs := C.CString(region)
 	defer C.free(unsafe.Pointer(cs))
 
-	itr := C.tabix_itr_querys(t.tbx, cs)
 	out := make(chan string, 20)
 
 	go func() {
+		itr := C.tabix_itr_querys(t.tbx, cs)
+		defer C.hts_itr_destroy(itr)
 		l := C.int(10)
 		for l > 0 {
 			cstr := C.tbx_next(t.htf, t.tbx, itr, &l)
-			res := C.GoString(cstr)
 			if l < 0 {
 				break
 			}
+			res := C.GoString(cstr)
 			out <- res
 		}
 		close(out)
