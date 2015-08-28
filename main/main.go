@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/brentp/cgotabix"
 	"github.com/brentp/irelate"
 )
 
+const F = "/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz"
+
 func benchmarkTabix(other string, ntimes int) {
 
 	start := time.Now()
-	tbxs := make([]cgotabix.Tabix, ntimes)
+	tbxs := make([]*cgotabix.Tabix, ntimes)
 
-	f := "/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz"
+	f := F
 	for i := 0; i < ntimes; i++ {
 		tbxs[i] = cgotabix.New(f)
 	}
@@ -38,37 +38,45 @@ func benchmarkTabix(other string, ntimes int) {
 
 		qstr := fmt.Sprintf("%s:%d-%d", v.Chrom(), v.Start(), v.End())
 
-		var r string
 		for _, tbx := range tbxs {
-			for r = range tbx.Get(qstr) {
-				sp := strings.Split(r, "\t")
-				start, err := strconv.Atoi(sp[1])
-				ref := sp[2]
-				alt := strings.Split(sp[3], ",")
-				if ref == "" {
-					log.Fatal(err)
+			for r := range tbx.Get(qstr) {
+				//sp := strings.Split(r, "\t")
+				ov := r.(*cgotabix.CVariant)
+				if v.Pos != ov.Pos {
+					continue
 				}
-
-				if err != nil {
-					log.Fatal(err)
+				if ov.Ref != v.Ref {
+					continue
+				}
+				same := false
+				for _, a := range ov.Alt {
+					for _, b := range v.Alt {
+						if a == b {
+							same = true
+							break
+						}
+					}
+				}
+				if !same {
+					continue
 				}
 				n += 1
-				fmt.Fprintf(out, "%d\t%v\t%s\n", start, alt, r)
+				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
+				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}
-			r += ""
 			k += 1
 		}
 
 	}
 	out.Flush()
-	log.Printf("tabix\t%d\t%s\t%.3f", ntimes, other, time.Since(start).Seconds())
+	log.Printf("tabix\t%d\t%s\t%.3f\t%d", ntimes, other, time.Since(start).Seconds(), n)
 
 }
 
 func benchmarkIrelate(other string, ntimes int) {
 
 	start := time.Now()
-	f := "/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz"
+	f := F
 	relatables := make([]irelate.RelatableChannel, ntimes+1)
 	for i := 0; i < ntimes; i++ {
 		exac, err := irelate.Streamer(f)
@@ -84,20 +92,21 @@ func benchmarkIrelate(other string, ntimes int) {
 	}
 	out := bufio.NewWriter(ioutil.Discard)
 	relatables[0] = vcf
+	n := 0
 
 	for v := range irelate.IRelate(irelate.CheckRelatedByOverlap, 0, irelate.Less, relatables...) {
 		qstr := fmt.Sprintf("%s:%d-%d", v.Chrom(), v.Start(), v.End())
 		fmt.Fprintf(out, "%s\n", qstr)
-
+		n += len(v.Related())
 	}
 	out.Flush()
-	log.Printf("irelate\t%d\t%s\t%.3f", ntimes, other, time.Since(start).Seconds())
+	log.Printf("irelate\t%d\t%s\t%.3f\t%d", ntimes, other, time.Since(start).Seconds(), n)
 
 }
 
 func main() {
 
-	for _, n_query := range []int{10000, 100000} {
+	for _, n_query := range []int{100, 10000, 100000} {
 		for _, n_db := range []int{1, 2, 4, 8} {
 			f := fmt.Sprintf("intervals.%d.vcf", n_query)
 			benchmarkTabix(f, n_db)
