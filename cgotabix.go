@@ -32,6 +32,16 @@ char *allele_i(bcf1_t *b, int idx) {
 	return b->d.allele[idx];
 }
 
+int itype(bcf_info_t *i){
+	return i->type;
+}
+
+int ivi(bcf_info_t *i) {
+	return i->v1.i;
+}
+float ivf(bcf_info_t *i) {
+	return i->v1.f;
+}
 
 */
 import "C"
@@ -53,6 +63,13 @@ const (
 	OTHER FileType = "other"
 )
 
+const BCF_BT_NULL int = 0
+const BCF_BT_INT8 int = 1
+const BCF_BT_INT16 int = 2
+const BCF_BT_INT32 int = 3
+const BCF_BT_FLOAT int = 5
+const BCF_BT_CHAR int = 7
+
 type Tabix struct {
 	tbx *C.tbx_t
 	htf *C.htsFile
@@ -67,6 +84,9 @@ func tabixCloser(t *Tabix) {
 	}
 	if t.htf != nil {
 		C.hts_close(t.htf)
+	}
+	if t.hdr != nil {
+		C.bcf_hdr_destroy(t.hdr)
 	}
 }
 
@@ -90,6 +110,32 @@ func New(path string) *Tabix {
 	return t
 }
 
+type INFO struct {
+	hdr *C.bcf_hdr_t
+	b   *C.bcf1_t
+}
+
+func (i *INFO) Get(key string) interface{} {
+	info := C.bcf_get_info(i.hdr, i.b, C.CString(key))
+	if info == nil {
+		return nil
+	}
+	return i.get(info)
+}
+
+func (self *INFO) get(info *C.bcf_info_t) interface{} {
+	if info.len == 1 {
+		// TODO: use switch
+		if C.itype(info) == C.BCF_BT_INT8 {
+			if C.ivi(info) == C.INT8_MIN {
+				return nil
+			}
+			return int(C.ivi(info))
+		}
+	}
+	return 22
+}
+
 type CVariant struct {
 	v       *C.bcf1_t
 	hdr     *C.bcf_hdr_t
@@ -102,7 +148,7 @@ type CVariant struct {
 }
 
 func NewCVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *CVariant {
-	C.bcf_unpack(v, 1|2|4)
+	C.bcf_unpack(v, 1|2|4) // dont unpack genotypes
 	c := &CVariant{v: v, hdr: hdr, source: 1}
 	c.Ref = C.GoString(C.allele_i(v, 0))
 	c.Pos = uint64(v.pos + 1)
@@ -110,7 +156,12 @@ func NewCVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *CVariant {
 	for i := 1; i < int(v.n_allele); i++ {
 		c.Alt[i-1] = C.GoString(C.allele_i(v, C.int(i)))
 	}
+	runtime.SetFinalizer(c, variantFinalizer)
 	return c
+}
+
+func variantFinalizer(v *CVariant) {
+	C.bcf_destroy(v.v)
 }
 
 func (c *CVariant) Chrom() string {
