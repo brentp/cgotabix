@@ -52,7 +52,6 @@ import (
 	"unsafe"
 
 	"github.com/brentp/irelate"
-	"github.com/brentp/vcfgo"
 )
 
 type FileType string
@@ -126,21 +125,55 @@ func (i *INFO) Get(key string) interface{} {
 func (self *INFO) get(info *C.bcf_info_t) interface{} {
 	if info.len == 1 {
 		// TODO: use switch
-		if C.itype(info) == C.BCF_BT_INT8 {
-			if C.ivi(info) == C.INT8_MIN {
+		ctype := C.itype(info)
+		switch ctype {
+		case C.BCF_BT_INT8, C.BCF_BT_INT16, C.BCF_BT_INT32:
+			switch ctype {
+			case C.BCF_BT_INT8:
+				if C.ivi(info) == C.INT8_MIN {
+					return nil
+				}
+				return int(C.ivi(info))
+			case C.BCF_BT_INT16:
+				if C.ivi(info) == C.INT16_MIN {
+					return nil
+				}
+				return int(C.ivi(info))
+			case C.BCF_BT_INT32:
+				if C.ivi(info) == C.INT32_MIN {
+					return nil
+				}
+				return int(C.ivi(info))
+			}
+		case C.BCF_BT_FLOAT:
+			if C.bcf_float_is_missing(C.ivf(info)) != 0 {
 				return nil
 			}
-			return int(C.ivi(info))
+			return float64(C.ivf(info))
+
+		case C.BCF_BT_CHAR:
+			return _string(info)
 		}
+
 	}
-	return 22
+	return _string(info)
+}
+
+func _string(info *C.bcf_info_t) interface{} {
+	s, l := info.vptr, info.vptr_len
+	// https://github.com/golang/go/wiki/cgo
+	slice := (*[1 << 20]uint8)(unsafe.Pointer(s))[:l:l]
+	if slice[0] == 0x7 {
+		return nil
+	}
+	return string(slice)
 }
 
 type CVariant struct {
 	v       *C.bcf1_t
 	hdr     *C.bcf_hdr_t
 	source  uint32
-	Info    *vcfgo.InfoByte
+	Info    INFO
 	related []irelate.Relatable
 	Pos     uint64
 	Ref     string
@@ -156,6 +189,7 @@ func NewCVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *CVariant {
 	for i := 1; i < int(v.n_allele); i++ {
 		c.Alt[i-1] = C.GoString(C.allele_i(v, C.int(i)))
 	}
+	c.Info = INFO{hdr, v}
 	runtime.SetFinalizer(c, variantFinalizer)
 	return c
 }

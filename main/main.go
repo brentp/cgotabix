@@ -61,6 +61,7 @@ func benchmarkTabix(other string, ntimes int) {
 					continue
 				}
 				n += 1
+				//log.Println(ov.Info.Get("culprit"))
 				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}
