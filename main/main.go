@@ -62,6 +62,12 @@ func benchmarkTabix(other string, ntimes int) {
 				}
 				n += 1
 				//log.Println(ov.Info.Get("culprit"))
+				ov.Info.Set("culprit", "hi")
+				ov.Info.Set("DP", 23)
+				// TODO: update header then Set
+				ov.Info.Set("XXX", 23.4)
+				log.Println(ov.Info.Get("XXX"))
+				////log.Println(ov.Info.Get("culprit"))
 				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}

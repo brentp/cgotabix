@@ -43,6 +43,22 @@ float ivf(bcf_info_t *i) {
 	return i->v1.f;
 }
 
+
+int ibcf_update_info_int32(const bcf_hdr_t *hdr, bcf1_t * line, const char *key, const int32_t *values, int n) {
+	bcf_update_info((hdr),(line),(key),(values),(n),BCF_HT_INT);
+}
+
+int ibcf_update_info_float(const bcf_hdr_t *hdr, bcf1_t * line, const char *key, const float *values, int n){
+	bcf_update_info((hdr),(line),(key),(values),(n),BCF_HT_REAL);
+}
+int ibcf_update_info_flag(const bcf_hdr_t *hdr, bcf1_t * line, const char *key, const char *string, int n){
+	bcf_update_info((hdr),(line),(key),(string),(n),BCF_HT_FLAG);
+}
+int ibcf_update_info_string(const bcf_hdr_t *hdr, bcf1_t * line, const char *key, const char *string){
+	bcf_update_info((hdr),(line),(key),(string),1,BCF_HT_STR);
+}
+
+
 */
 import "C"
 import (
@@ -70,11 +86,12 @@ const BCF_BT_FLOAT int = 5
 const BCF_BT_CHAR int = 7
 
 type Tabix struct {
-	tbx *C.tbx_t
-	htf *C.htsFile
-	hdr *C.bcf_hdr_t
-	itr *C.hts_itr_t
-	typ FileType
+	path string
+	tbx  *C.tbx_t
+	htf  *C.htsFile
+	hdr  *C.bcf_hdr_t
+	itr  *C.hts_itr_t
+	typ  FileType
 }
 
 func tabixCloser(t *Tabix) {
@@ -91,12 +108,12 @@ func tabixCloser(t *Tabix) {
 
 // New takes a path to a bgziped (and tabixed file) and returns the tabix struct.
 func New(path string) *Tabix {
-	t := &Tabix{}
-	cs := C.CString(path)
+	t := &Tabix{path: path}
+	cs := C.CString(t.path)
 	defer C.free(unsafe.Pointer(cs))
-	t.tbx = C.tbx_index_load(cs)
 	mode := C.char('r')
 	t.htf = C.hts_open(cs, &mode)
+	t.tbx = C.tbx_index_load(cs)
 	runtime.SetFinalizer(t, tabixCloser)
 	if strings.HasSuffix(path, ".bed.gz") {
 		t.typ = BED
@@ -122,10 +139,46 @@ func (i *INFO) Get(key string) interface{} {
 	return i.get(info)
 }
 
+func (i *INFO) Set(key string, value interface{}) {
+	ckey := C.CString(key)
+	switch value.(type) {
+	case int:
+		value := C.int32_t(value.(int))
+		C.ibcf_update_info_int32(i.hdr, i.b, ckey, &value, 1)
+	case float32:
+		value := C.float(value.(float32))
+		C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
+	case float64:
+		value := C.float(value.(float64))
+		C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
+	case string:
+		value := C.CString(value.(string))
+		C.ibcf_update_info_string(i.hdr, i.b, ckey, value)
+	case bool:
+		value := value.(bool)
+
+		if value {
+			C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 1)
+		} else {
+			C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 0)
+		}
+
+	case []interface{}:
+		value := value.([]interface{})
+		l := len(value)
+		if l == 0 {
+			return
+		}
+		switch value[0].(type) {
+
+		}
+
+	}
+}
+
 func (self *INFO) get(info *C.bcf_info_t) interface{} {
+	ctype := C.itype(info)
 	if info.len == 1 {
-		// TODO: use switch
-		ctype := C.itype(info)
 		switch ctype {
 		case C.BCF_BT_INT8, C.BCF_BT_INT16, C.BCF_BT_INT32:
 			switch ctype {
@@ -156,7 +209,66 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 		}
 
 	}
-	return _string(info)
+
+	if int(ctype) == BCF_BT_CHAR {
+		return _string(info)
+	}
+
+	l := int(info.vptr_len)
+	switch ctype {
+	case C.BCF_BT_INT8:
+		out := make([]int, l)
+		slice := (*[1 << 20]C.int8_t)(unsafe.Pointer(info.vptr))[:l:l]
+		for i := 0; i < l; i++ {
+			//if slice[i] == C.bcf_int8_missing {
+			//		out[i] = nil
+			if slice[i] == C.bcf_int8_vector_end {
+				return out[:i]
+			} else {
+				out[i] = int(slice[i])
+			}
+		}
+	case C.BCF_BT_INT16:
+		out := make([]int, l)
+		slice := (*[1 << 20]C.int16_t)(unsafe.Pointer(info.vptr))[:l:l]
+		for i := 0; i < l; i++ {
+			//if slice[i] == C.bcf_int16_missing {
+			//		out[i] = nil
+			if slice[i] == C.bcf_int16_vector_end {
+				return out[:i]
+			} else {
+				out[i] = int(slice[i])
+			}
+		}
+
+	case C.BCF_BT_INT32:
+		out := make([]int, l)
+		slice := (*[1 << 20]C.int32_t)(unsafe.Pointer(info.vptr))[:l:l]
+		for i := 0; i < l; i++ {
+			//if slice[i] == C.bcf_int32_missing {
+			//		out[i] = nil
+			if slice[i] == C.bcf_int32_vector_end {
+				return out[:i]
+			} else {
+				out[i] = int(slice[i])
+			}
+		}
+
+	case C.BCF_BT_FLOAT:
+		out := make([]float32, l)
+		slice := (*[1 << 20]C.float)(unsafe.Pointer(info.vptr))[:l:l]
+		for i := 0; i < l; i++ {
+			//if C.bcf_float_is_missing(slice[i]) != 0 {
+			//		out[i] = nil
+			if C.bcf_float_is_vector_end(slice[i]) != 0 {
+				return out[:i]
+			} else {
+				out[i] = float32(slice[i])
+			}
+		}
+
+	}
+	return nil
 }
 
 func _string(info *C.bcf_info_t) interface{} {
