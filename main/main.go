@@ -21,6 +21,10 @@ func benchmarkTabix(other string, ntimes int) {
 	f := F
 	for i := 0; i < ntimes; i++ {
 		tbxs[i] = cgotabix.New(f)
+		tbxs[i].AddInfoToHeader("XXX", "1", "Float", "XXX")
+		tbxs[i].AddInfoToHeader("many", "3", "Float", "XXX")
+		tbxs[i].AddInfoToHeader("manyi", "3", "Integer", "XXX")
+		tbxs[i].AddInfoToHeader("flag", "1", "Flag", "XXX")
 	}
 
 	vcf := irelate.Vopen(other)
@@ -62,12 +66,29 @@ func benchmarkTabix(other string, ntimes int) {
 				}
 				n += 1
 				//log.Println(ov.Info.Get("culprit"))
-				ov.Info.Set("culprit", "hi")
-				ov.Info.Set("DP", 23)
+				//ov.Info.Set("culprit", "hi")
+				//ov.Info.Set("DP", 23)
 				// TODO: update header then Set
-				ov.Info.Set("XXX", 23.4)
-				log.Println(ov.Info.Get("XXX"))
+				v := []float32{33.0, 33.0, 44.0}
+				ov.Info.Set("many", v)
+				ov.Info.Set("flag", true)
+
+				ov.Info.Set("manyi", []int32{22, 1, 2})
+				//ov.Info.Set("XXX", 23.4)
 				////log.Println(ov.Info.Get("culprit"))
+				if len(ov.Info.Get("many").([]float32)) != 3 {
+					panic("bad length")
+				}
+
+				v2 := ov.Info.Get("manyi").([]int)
+				if v2[2] != 2 {
+					log.Fatalf("bad int: %v\n", v2)
+				}
+				b := ov.Info.Get("flag").(bool)
+				if !b {
+					log.Fatalf("bad bool")
+				}
+
 				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}
