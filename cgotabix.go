@@ -58,6 +58,9 @@ int ibcf_update_info_string(const bcf_hdr_t *hdr, bcf1_t * line, const char *key
 	bcf_update_info((hdr),(line),(key),(string),1,BCF_HT_STR);
 }
 
+int ibcf_hdr_id2type(bcf_hdr_t *hdr, int htype, int tag_id){
+	return bcf_hdr_id2type(hdr, htype, tag_id);
+}
 
 */
 import "C"
@@ -155,38 +158,41 @@ type INFO struct {
 func (i *INFO) Get(key string) interface{} {
 	ckey := C.CString(key)
 	info := C.bcf_get_info(i.hdr, i.b, ckey)
-	C.free(unsafe.Pointer(ckey))
 	if info == nil {
+		// return nil for bool (false)
+		C.free(unsafe.Pointer(ckey))
 		return nil
 	}
-	return i.get(info)
+	val := i.get(info, ckey)
+	C.free(unsafe.Pointer(ckey))
+	return val
 }
 
 func (i *INFO) Set(key string, ovalue interface{}) {
 	ckey := C.CString(key)
+	var ret C.int
 
 	switch ovalue.(type) {
 	case int:
 		value := C.int32_t(ovalue.(int))
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, &value, 1)
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, &value, 1)
 	case float32:
-		log.Println("OOOOOO")
 		value := C.float(ovalue.(float32))
-		C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
+		ret = C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
 	case float64:
 		value := C.float(ovalue.(float64))
-		C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
+		ret = C.ibcf_update_info_float(i.hdr, i.b, ckey, &value, 1)
 	case string:
 		value := C.CString(ovalue.(string))
-		C.ibcf_update_info_string(i.hdr, i.b, ckey, value)
+		ret = C.ibcf_update_info_string(i.hdr, i.b, ckey, value)
 		C.free(unsafe.Pointer(value))
 	case bool:
 		value := ovalue.(bool)
 
 		if value {
-			ret := C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 1)
+			ret = C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 1)
 		} else {
-			C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 0)
+			ret = C.ibcf_update_info_flag(i.hdr, i.b, ckey, ckey, 0)
 		}
 	case []uint32:
 		value := ovalue.([]uint32)
@@ -196,7 +202,7 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = int32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
 
 	case []int:
 		value := ovalue.([]int)
@@ -206,7 +212,7 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = int32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
 
 	case []uint64:
 		value := ovalue.([]uint64)
@@ -216,7 +222,7 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = int32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
 
 	case []int32:
 		value := ovalue.([]int32)
@@ -226,7 +232,7 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = int32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
 
 	case []int64:
 		value := ovalue.([]int64)
@@ -236,7 +242,7 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = int32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
+		ret = C.ibcf_update_info_int32(i.hdr, i.b, ckey, (*C.int32_t)(ptr), C.int(l))
 
 	case []float64:
 		value := ovalue.([]float32)
@@ -246,24 +252,18 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 			val[i] = float32(v)
 		}
 		ptr := unsafe.Pointer(&val[0])
-		ret := C.ibcf_update_info_float(i.hdr, i.b, ckey, (*C.float)(ptr), C.int(l))
-		if ret != 0 {
-			log.Printf("not set %s %v\n", key, ovalue)
-		}
+		ret = C.ibcf_update_info_float(i.hdr, i.b, ckey, (*C.float)(ptr), C.int(l))
 
 	case []float32:
 		val := ovalue.([]float32)
 		l := len(val)
 		ptr := unsafe.Pointer(&val[0])
-		ret := C.ibcf_update_info_float(i.hdr, i.b, ckey, (*C.float)(ptr), C.int(l))
-		if ret != 0 {
-			log.Printf("not set %s %v\n", key, ovalue)
-		}
+		ret = C.ibcf_update_info_float(i.hdr, i.b, ckey, (*C.float)(ptr), C.int(l))
 
 	case []string:
 		valuestr := ovalue.([]string)
 		value := C.CString(strings.Join(valuestr, ","))
-		C.ibcf_update_info_string(i.hdr, i.b, ckey, value)
+		ret = C.ibcf_update_info_string(i.hdr, i.b, ckey, value)
 		C.free(unsafe.Pointer(value))
 	case []bool:
 		// not possible
@@ -271,10 +271,13 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 		log.Printf("multipe values for type: %T; not implemented (key: %s)\n", ovalue, key)
 
 	}
+	if ret != 0 {
+		log.Printf("not set %s %v of type %T\n", key, ovalue, ovalue)
+	}
 	C.free(unsafe.Pointer(ckey))
 }
 
-func (self *INFO) get(info *C.bcf_info_t) interface{} {
+func (self *INFO) get(info *C.bcf_info_t, tag *C.char) interface{} {
 	ctype := C.itype(info)
 	if info.len == 1 {
 		switch ctype {
@@ -302,13 +305,13 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 			}
 			return float64(C.ivf(info))
 		case C.BCF_BT_CHAR:
-			return _string(info)
+			return _string(info, self.hdr, tag)
 		}
 
 	}
 
 	if int(ctype) == BCF_BT_CHAR {
-		return _string(info)
+		return _string(info, self.hdr, tag)
 	}
 
 	// divide this number by the number of bytes per object
@@ -320,7 +323,7 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 		out := make([]int, l)
 		slice := (*[1 << 20]C.int8_t)(unsafe.Pointer(info.vptr))[:l:l]
 		for i := 0; i < l; i++ {
-			//if slice[i] == C.bcf_int8_missing {
+			//if slice[i] == C.bcf_int8_missing
 			//		out[i] = nil
 			if slice[i] == C.bcf_int8_vector_end {
 				return out[:i]
@@ -335,7 +338,7 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 		out := make([]int, l)
 		slice := (*[1 << 20]C.int16_t)(unsafe.Pointer(info.vptr))[:l:l]
 		for i := 0; i < l; i++ {
-			//if slice[i] == C.bcf_int16_missing {
+			//if slice[i] == C.bcf_int16_missing
 			//		out[i] = nil
 			if slice[i] == C.bcf_int16_vector_end {
 				return out[:i]
@@ -350,7 +353,7 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 		out := make([]int, l)
 		slice := (*[1 << 20]C.int32_t)(unsafe.Pointer(info.vptr))[:l:l]
 		for i := 0; i < l; i++ {
-			//if slice[i] == C.bcf_int32_missing {
+			//if slice[i] == C.bcf_int32_missing
 			//		out[i] = nil
 			if slice[i] == C.bcf_int32_vector_end {
 				return out[:i]
@@ -377,8 +380,15 @@ func (self *INFO) get(info *C.bcf_info_t) interface{} {
 	return nil
 }
 
-func _string(info *C.bcf_info_t) interface{} {
+func _string(info *C.bcf_info_t, hdr *C.bcf_hdr_t, tag *C.char) interface{} {
 	s, l := info.vptr, info.vptr_len
+	// in here, need to tell if it's a flag and return a bool or a string if not.
+	tag_id := C.bcf_hdr_id2int(hdr, C.BCF_DT_ID, tag)
+	htype := C.ibcf_hdr_id2type(hdr, C.BCF_HL_INFO, tag_id)
+	if htype == C.BCF_HT_FLAG {
+		return true
+	}
+
 	// https://github.com/golang/go/wiki/cgo
 	slice := (*[1 << 20]uint8)(unsafe.Pointer(s))[:l:l]
 	if slice[0] == 0x7 {

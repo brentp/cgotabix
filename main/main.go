@@ -65,13 +65,14 @@ func benchmarkTabix(other string, ntimes int) {
 					continue
 				}
 				n += 1
+				abool := n%2 == 0
 				//log.Println(ov.Info.Get("culprit"))
 				//ov.Info.Set("culprit", "hi")
-				//ov.Info.Set("DP", 23)
+				ov.Info.Set("DP", 23)
 				// TODO: update header then Set
 				v := []float32{33.0, 33.0, 44.0}
 				ov.Info.Set("many", v)
-				ov.Info.Set("flag", true)
+				ov.Info.Set("flag", abool)
 
 				ov.Info.Set("manyi", []int32{22, 1, 2})
 				//ov.Info.Set("XXX", 23.4)
@@ -84,9 +85,15 @@ func benchmarkTabix(other string, ntimes int) {
 				if v2[2] != 2 {
 					log.Fatalf("bad int: %v\n", v2)
 				}
-				b := ov.Info.Get("flag").(bool)
-				if !b {
-					log.Fatalf("bad bool")
+				b := ov.Info.Get("flag")
+				if b == nil && abool != false {
+					log.Fatal("bad bool")
+				} else if abool && !b.(bool) {
+					log.Fatal("bad bool")
+				}
+
+				if ov.Info.Get("DP").(int) != 23 {
+					log.Fatal("bad depth")
 				}
 
 				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
