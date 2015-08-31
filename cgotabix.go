@@ -168,7 +168,7 @@ func (i *INFO) Get(key string) interface{} {
 	return val
 }
 
-func (i *INFO) Set(key string, ovalue interface{}) {
+func (i *INFO) Set(key string, ovalue interface{}) error {
 	ckey := C.CString(key)
 	var ret C.int
 
@@ -271,10 +271,12 @@ func (i *INFO) Set(key string, ovalue interface{}) {
 		log.Printf("multipe values for type: %T; not implemented (key: %s)\n", ovalue, key)
 
 	}
+	var e error
 	if ret != 0 {
-		log.Printf("not set %s %v of type %T\n", key, ovalue, ovalue)
+		e = fmt.Errorf("not set %s %v of type %T\n", key, ovalue, ovalue)
 	}
 	C.free(unsafe.Pointer(ckey))
+	return e
 }
 
 func (self *INFO) get(info *C.bcf_info_t, tag *C.char) interface{} {
