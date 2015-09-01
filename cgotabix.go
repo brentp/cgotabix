@@ -14,6 +14,35 @@ package cgotabix
 #include "htslib/kfunc.h"
 
 
+format_info(bcf1_t *v, bcf_hdr_t *h, kstring_t *s){
+  int i;
+  if (v->n_info) {
+	  int first = 1;
+	  for (i = 0; i < v->n_info; ++i) {
+		  bcf_info_t *z = &v->d.info[i];
+		  if ( !z->vptr ) continue;
+		  if ( !first ) kputc(';', s); first = 0;
+		  kputs(h->id[BCF_DT_ID][z->key].key, s);
+		  if (z->len <= 0) continue;
+		  kputc('=', s);
+		  if (z->len == 1)
+		  {
+			  switch (z->type)
+			  {
+				  case BCF_BT_INT8:  if ( z->v1.i==bcf_int8_missing ) kputc('.', s); else kputw(z->v1.i, s); break;
+				  case BCF_BT_INT16: if ( z->v1.i==bcf_int16_missing ) kputc('.', s); else kputw(z->v1.i, s); break;
+				  case BCF_BT_INT32: if ( z->v1.i==bcf_int32_missing ) kputc('.', s); else kputw(z->v1.i, s); break;
+				  case BCF_BT_FLOAT: if ( bcf_float_is_missing(z->v1.f) ) kputc('.', s); else ksprintf(s, "%g", z->v1.f); break;
+				  case BCF_BT_CHAR:  kputc(z->v1.i, s); break;
+				  default: fprintf(stderr,"todo: type %d\n", z->type); exit(1); break;
+			  }
+		  }
+		  else bcf_fmt_array(s, z->len, z->type, z->vptr);
+	  }
+	  if ( first ) kputc('.', s);
+      } else kputc('.', s);
+}
+
 char *tbx_next(htsFile *fp, tbx_t *tbx, hts_itr_t *iter, int *slen) {
 	kstring_t s = {0, 0, 0};
 	*slen = tbx_itr_next(fp, tbx, iter, &s);
@@ -22,7 +51,11 @@ char *tbx_next(htsFile *fp, tbx_t *tbx, hts_itr_t *iter, int *slen) {
 
 hts_itr_t *tabix_itr_querys(tbx_t *tbx, char *s){
      return hts_itr_querys((tbx)->idx, (s), (hts_name2id_f)(tbx_name2id), (tbx), hts_itr_query, tbx_readrec);
- }
+}
+
+hts_itr_t *tabix_itr_queryi(tbx_t *tbx,  int tid, int beg, int end){
+     return hts_itr_query((tbx)->idx, (tid), (beg), (end), tbx_readrec);
+}
 
 inline int atbx_itr_next(htsFile *fp, tbx_t *tbx, hts_itr_t *iter, kstring_t *data) {
 	return tbx_itr_next(fp, tbx, iter, (void *)data);
@@ -62,6 +95,10 @@ int ibcf_hdr_id2type(bcf_hdr_t *hdr, int htype, int tag_id){
 	return bcf_hdr_id2type(hdr, htype, tag_id);
 }
 
+char *vid(bcf1_t *b) {
+	return b->d.id;
+}
+
 */
 import "C"
 import (
@@ -72,6 +109,7 @@ import (
 	"unsafe"
 
 	"github.com/brentp/irelate"
+	"github.com/brentp/irelate/interfaces"
 )
 
 type FileType string
@@ -155,17 +193,23 @@ type INFO struct {
 	b   *C.bcf1_t
 }
 
-func (i *INFO) Get(key string) interface{} {
+func (i *INFO) Get(key string) (interface{}, error) {
 	ckey := C.CString(key)
 	info := C.bcf_get_info(i.hdr, i.b, ckey)
 	if info == nil {
 		// return nil for bool (false)
 		C.free(unsafe.Pointer(ckey))
-		return nil
+		return nil, nil
 	}
 	val := i.get(info, ckey)
 	C.free(unsafe.Pointer(ckey))
-	return val
+	return val, nil
+}
+
+func (i *INFO) Delete(key string) {
+	ckey := C.CString(key)
+	C.bcf_update_info(i.hdr, i.b, ckey, nil, 0, C.BCF_HT_STR)
+	C.free(unsafe.Pointer(ckey))
 }
 
 func (i *INFO) Set(key string, ovalue interface{}) error {
@@ -277,6 +321,18 @@ func (i *INFO) Set(key string, ovalue interface{}) error {
 	}
 	C.free(unsafe.Pointer(ckey))
 	return e
+}
+
+func (i *INFO) Keys() []string {
+	return []string{}
+}
+
+func (i *INFO) String() string {
+	kstr := C.kstring_t{}
+	C.format_info(i.b, i.hdr, &kstr)
+	v := C.GoStringN(kstr.s, C.int(kstr.l))
+	C.free(unsafe.Pointer(kstr.s))
+	return v
 }
 
 func (self *INFO) get(info *C.bcf_info_t, tag *C.char) interface{} {
@@ -399,73 +455,157 @@ func _string(info *C.bcf_info_t, hdr *C.bcf_hdr_t, tag *C.char) interface{} {
 	return string(slice)
 }
 
-type CVariant struct {
+type Variant struct {
 	v       *C.bcf1_t
 	hdr     *C.bcf_hdr_t
 	source  uint32
-	Info    INFO
-	related []irelate.Relatable
+	Info_   interfaces.Info
+	related []interfaces.Relatable
+	Id      string
 	Pos     uint64
-	Ref     string
-	Alt     []string
+	_alt    []string
 }
 
-func NewCVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *CVariant {
+func NewVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *Variant {
 	C.bcf_unpack(v, 1|2|4) // dont unpack genotypes
-	c := &CVariant{v: v, hdr: hdr, source: 1}
-	c.Ref = C.GoString(C.allele_i(v, 0))
+	c := &Variant{v: v, hdr: hdr, source: 1}
 	c.Pos = uint64(v.pos + 1)
-	c.Alt = make([]string, v.n_allele-1)
-	for i := 1; i < int(v.n_allele); i++ {
-		c.Alt[i-1] = C.GoString(C.allele_i(v, C.int(i)))
-	}
-	c.Info = INFO{hdr, v}
+	c.Id = C.GoString(C.vid(v))
+	c.Info_ = &INFO{hdr, v}
 	runtime.SetFinalizer(c, variantFinalizer)
 	return c
 }
 
-func variantFinalizer(v *CVariant) {
+func variantFinalizer(v *Variant) {
 	C.bcf_destroy(v.v)
 }
 
-func (c *CVariant) Chrom() string {
+func (c *Variant) Chrom() string {
 	return C.GoString(C.bcf_hdr_id2name(c.hdr, C.int(c.v.rid)))
 }
 
-func (c *CVariant) Start() uint32 {
+func (c *Variant) Start() uint32 {
 	return uint32(c.v.pos)
 }
 
-func (c *CVariant) End() uint32 {
+func (c *Variant) End() uint32 {
 	return uint32(c.v.pos + c.v.rlen)
 }
 
-func (c *CVariant) Source() uint32 {
+func (c *Variant) CIPos() (uint32, uint32, bool) {
+	s := c.Start()
+	ipair, err := c.Info_.Get("CIPOS")
+	if ipair == nil || err != nil {
+		return s, s + 1, false
+	}
+	pair, ok := ipair.([]interface{})
+	if !ok {
+		return s, s + 1, false
+	}
+	left := pair[0].(int)
+	right := pair[0].(int)
+	return uint32(int(s) + left), uint32(int(s) + right + 1), true
+}
+
+func (c *Variant) CIEnd() (uint32, uint32, bool) {
+	e := c.End()
+	ipair, err := c.Info_.Get("CIEnd")
+	if ipair == nil || err != nil {
+		return e - 1, e, false
+	}
+	pair, ok := ipair.([]interface{})
+	if !ok {
+		return e - 1, e, false
+	}
+	left := pair[0].(int)
+	right := pair[0].(int)
+	return uint32(int(e) + left), uint32(int(e) + right + 1), true
+}
+
+func (c *Variant) Source() uint32 {
 	return c.source
 }
 
-func (c *CVariant) SetSource(s uint32) {
+func (v *Variant) Info() interfaces.Info {
+	return v.Info_
+}
+
+func (c *Variant) SetSource(s uint32) {
 	c.source = s
 }
 
-func (c *CVariant) Related() []irelate.Relatable {
+func (c *Variant) Related() []interfaces.Relatable {
 	return c.related
 }
 
-func (c *CVariant) AddRelated(i irelate.Relatable) {
+func (c *Variant) AddRelated(i interfaces.Relatable) {
 	if c.related == nil {
-		c.related = make([]irelate.Relatable, 0)
+		c.related = make([]interfaces.Relatable, 0)
 	}
 	c.related = append(c.related, i)
 }
 
-// Get takes a region like 1:45678-56789 and returns a channel on which
+func (c *Variant) Alt() []string {
+	if c._alt == nil {
+		c._alt = make([]string, c.v.n_allele-1)
+		for i := 1; i < int(c.v.n_allele); i++ {
+			c._alt[i-1] = C.GoString(C.allele_i(c.v, C.int(i)))
+		}
+	}
+	return c._alt
+}
+
+func (c *Variant) Ref() string {
+	return C.GoString(C.allele_i(c.v, 0))
+}
+
+func (t *Tabix) Get(q interfaces.IPosition) []interfaces.IPosition {
+	//cs := C.CString(fmt.Sprintf("%s:%d-%d", q.Chrom(), q.Start()+1, q.End()))
+	ch := C.CString(q.Chrom())
+	cs := C.tbx_name2id(t.tbx, ch)
+
+	itr := C.tabix_itr_queryi(t.tbx, cs, C.int(q.Start()), C.int(q.End()))
+
+	kstr := C.kstring_t{}
+	overlaps := make([]interfaces.IPosition, 0, 4)
+	l := C.int(10)
+	for l > 0 {
+		l := C.atbx_itr_next(t.htf, t.tbx, itr, &kstr)
+		if l < 0 {
+			break
+		}
+		//res := C.GoString(kstr.s)
+		if t.typ == VCF {
+			b := C.bcf_init()
+			ret := C.vcf_parse(&kstr, t.hdr, b)
+			if ret < 0 {
+				log.Printf("error parsing %s\n", C.GoStringN(kstr.s, C.int(kstr.l)))
+			}
+			overlaps = append(overlaps, NewVariant(b, t.hdr, 1))
+		} else if t.typ == BED {
+			iv, err := irelate.IntervalFromBedLine(C.GoStringN(kstr.s, C.int(kstr.l)))
+			if err != nil {
+				log.Printf("error parsing %s:%s\n", C.GoStringN(kstr.s, C.int(kstr.l)), err)
+			}
+			if iv != nil {
+				overlaps = append(overlaps, iv)
+			}
+		}
+
+	}
+	C.hts_itr_destroy(itr)
+	C.free(unsafe.Pointer(ch))
+	C.free(unsafe.Pointer(kstr.s))
+	return overlaps
+}
+
+// At takes a region like 1:45678-56789 and returns a channel on which
 // it sends a string for each line that falls in that interval.
-func (t *Tabix) Get(region string) chan irelate.Relatable {
+func (t *Tabix) At(region string) irelate.RelatableChannel {
 	cs := C.CString(region)
 	defer C.free(unsafe.Pointer(cs))
 
-	out := make(chan irelate.Relatable, 20)
+	out := make(irelate.RelatableChannel, 20)
 	itr := C.tabix_itr_querys(t.tbx, cs)
 
 	go func() {
@@ -482,7 +622,7 @@ func (t *Tabix) Get(region string) chan irelate.Relatable {
 			if ret < 0 {
 				log.Printf("error parsing %s\n", C.GoStringN(kstr.s, C.int(kstr.l)))
 			}
-			out <- NewCVariant(b, t.hdr, 1)
+			out <- NewVariant(b, t.hdr, 1)
 		}
 		close(out)
 		C.hts_itr_destroy(itr)

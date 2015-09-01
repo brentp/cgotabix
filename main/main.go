@@ -9,6 +9,7 @@ import (
 
 	"github.com/brentp/cgotabix"
 	"github.com/brentp/irelate"
+	"github.com/brentp/irelate/interfaces"
 )
 
 const F = "/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz"
@@ -34,8 +35,9 @@ func benchmarkTabix(other string, ntimes int) {
 	n := 0
 	k := 0
 	for {
+		var v interfaces.IVariant
 
-		v := vcf.Read()
+		v = vcf.Read()
 		if v == nil {
 			break
 		}
@@ -43,60 +45,53 @@ func benchmarkTabix(other string, ntimes int) {
 		qstr := fmt.Sprintf("%s:%d-%d", v.Chrom(), v.Start(), v.End())
 
 		for _, tbx := range tbxs {
-			for r := range tbx.Get(qstr) {
+			//for _, r := range tbx.Get(v) {
+			for r := range tbx.At(qstr) {
 				//sp := strings.Split(r, "\t")
-				ov := r.(*cgotabix.CVariant)
-				if v.Pos != ov.Pos {
+
+				if !interfaces.Same(r, v, true) {
 					continue
 				}
-				if ov.Ref != v.Ref {
-					continue
-				}
-				same := false
-				for _, a := range ov.Alt {
-					for _, b := range v.Alt {
-						if a == b {
-							same = true
-							break
-						}
-					}
-				}
-				if !same {
-					continue
-				}
+
+				ov := r.(interfaces.IVariant)
 				n += 1
 				abool := n%2 == 0
 				//log.Println(ov.Info.Get("culprit"))
 				//ov.Info.Set("culprit", "hi")
-				ov.Info.Set("DP", 23)
+				ov.Info().Set("DP", 23)
 				// TODO: update header then Set
 				v := []float32{33.0, 33.0, 44.0}
-				ov.Info.Set("many", v)
-				ov.Info.Set("flag", abool)
+				ov.Info().Set("many", v)
+				ov.Info().Set("flag", abool)
 
-				ov.Info.Set("manyi", []int32{22, 1, 2})
+				ov.Info().Set("manyi", []int32{22, 1, 2})
 				//ov.Info.Set("XXX", 23.4)
 				////log.Println(ov.Info.Get("culprit"))
-				if len(ov.Info.Get("many").([]float32)) != 3 {
+				vv, err := ov.Info().Get("many")
+				if err != nil {
+					panic("couldn't get many")
+				}
+				if len(vv.([]float32)) != 3 {
 					panic("bad length")
 				}
 
-				v2 := ov.Info.Get("manyi").([]int)
-				if v2[2] != 2 {
+				v2, err := ov.Info().Get("manyi")
+				if v2.([]int)[2] != 2 {
 					log.Fatalf("bad int: %v\n", v2)
 				}
-				b := ov.Info.Get("flag")
+				b, err := ov.Info().Get("flag")
 				if b == nil && abool != false {
 					log.Fatal("bad bool")
 				} else if abool && !b.(bool) {
 					log.Fatal("bad bool")
 				}
 
-				if ov.Info.Get("DP").(int) != 23 {
+				dp, err := ov.Info().Get("DP")
+				if dp.(int) != 23 {
 					log.Fatal("bad depth")
 				}
 
-				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
+				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt, ov.Info().String())
 				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}
 			k += 1
