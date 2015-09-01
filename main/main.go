@@ -91,7 +91,7 @@ func benchmarkTabix(other string, ntimes int) {
 					log.Fatal("bad depth")
 				}
 
-				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt, ov.Info().String())
+				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref(), ov.Alt(), ov.Info().String())
 				//log.Println(r.Chrom(), r.Start(), r.End(), ov.Ref, ov.Alt)
 			}
 			k += 1

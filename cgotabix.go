@@ -1,7 +1,8 @@
 package cgotabix
 
 /*
-#cgo LDFLAGS: -L. -lhts -lpthread -lz -lm
+#cgo LDFLAGS: -lhts -lpthread -lz -lm
+
 #include "stdlib.h"
 #include <zlib.h>
 #include "htslib/hts.h"
@@ -13,8 +14,7 @@ package cgotabix
 #include "htslib/faidx.h"
 #include "htslib/kfunc.h"
 
-
-format_info(bcf1_t *v, bcf_hdr_t *h, kstring_t *s){
+void format_info(bcf1_t *v, bcf_hdr_t *h, kstring_t *s){
   int i;
   if (v->n_info) {
 	  int first = 1;
