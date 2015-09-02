@@ -29,7 +29,8 @@ type TSuite struct{}
 var _ = Suite(&TSuite{})
 
 func (s *TSuite) TestRead(c *C) {
-	t := New("vt.norm.vcf.gz")
+	t, err := New("vt.norm.vcf.gz")
+	c.Assert(err, IsNil)
 	i := 0
 	for _ = range t.At("1:50000-90000") {
 		i += 1
@@ -44,7 +45,8 @@ func (s *TSuite) TestRead(c *C) {
 }
 
 func (s *TSuite) TestEmptyRegion(c *C) {
-	t := New("vt.norm.vcf.gz")
+	t, err := New("vt.norm.vcf.gz")
+	c.Assert(err, IsNil)
 	i := 0
 	for _ = range t.At("2:50000-90000") {
 		i += 1

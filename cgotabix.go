@@ -110,6 +110,7 @@ import (
 
 	"github.com/brentp/irelate"
 	"github.com/brentp/irelate/interfaces"
+	"github.com/brentp/xopen"
 )
 
 type FileType string
@@ -150,7 +151,11 @@ func tabixCloser(t *Tabix) {
 }
 
 // New takes a path to a bgziped (and tabixed file) and returns the tabix struct.
-func New(path string) *Tabix {
+func New(path string) (*Tabix, error) {
+	if !(xopen.Exists(path) && xopen.Exists(path+".tbi")) {
+		return nil, fmt.Errorf("need gz file and .tbi for %s", path)
+	}
+
 	t := &Tabix{path: path}
 	cs := C.CString(t.path)
 	defer C.free(unsafe.Pointer(cs))
@@ -167,7 +172,7 @@ func New(path string) *Tabix {
 		t.typ = OTHER
 	}
 	t.original_header = true
-	return t
+	return t, nil
 }
 
 func (t *Tabix) AddInfoToHeader(id string, number string, vtype string, description string) {
@@ -461,7 +466,6 @@ type Variant struct {
 	source  uint32
 	Info_   interfaces.Info
 	related []interfaces.Relatable
-	Id      string
 	Pos     uint64
 	_alt    []string
 }
@@ -470,7 +474,6 @@ func NewVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *Variant {
 	C.bcf_unpack(v, 1|2|4) // dont unpack genotypes
 	c := &Variant{v: v, hdr: hdr, source: 1}
 	c.Pos = uint64(v.pos + 1)
-	c.Id = C.GoString(C.vid(v))
 	c.Info_ = &INFO{hdr, v}
 	runtime.SetFinalizer(c, variantFinalizer)
 	return c
@@ -478,6 +481,14 @@ func NewVariant(v *C.bcf1_t, hdr *C.bcf_hdr_t, source uint32) *Variant {
 
 func variantFinalizer(v *Variant) {
 	C.bcf_destroy(v.v)
+}
+
+func (c *Variant) Id() string {
+	return C.GoString(C.vid(c.v))
+}
+
+func (v *Variant) String() string {
+	return fmt.Sprintf("%s\t%d\t%s\t%s", v.Chrom(), v.Start()+1, v.Id(), v.Info())
 }
 
 func (c *Variant) Chrom() string {

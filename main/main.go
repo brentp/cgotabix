@@ -12,16 +12,29 @@ import (
 	"github.com/brentp/irelate/interfaces"
 )
 
-const F = "/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz"
+var FS = []string{
+	"/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5a.20130502.sites.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/ESP6500SI.all.snps_indels.tidy.v2.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/GRCh37-gms-mappability.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/clinvar_20150305.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/cosmic-v68-GRCh37.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/dbsnp.b141.20140813.hg19.tidy.vcf.gz",
+}
 
 func benchmarkTabix(other string, ntimes int) {
 
 	start := time.Now()
 	tbxs := make([]*cgotabix.Tabix, ntimes)
 
-	f := F
+	var err error
 	for i := 0; i < ntimes; i++ {
-		tbxs[i] = cgotabix.New(f)
+		tbxs[i], err = cgotabix.New(FS[i])
+		if err != nil {
+			log.Println(err)
+		}
 		tbxs[i].AddInfoToHeader("XXX", "1", "Float", "XXX")
 		tbxs[i].AddInfoToHeader("many", "3", "Float", "XXX")
 		tbxs[i].AddInfoToHeader("manyi", "3", "Integer", "XXX")
@@ -87,8 +100,12 @@ func benchmarkTabix(other string, ntimes int) {
 				}
 
 				dp, err := ov.Info().Get("DP")
-				if dp.(int) != 23 {
-					log.Fatal("bad depth")
+				if v, ok := dp.(int); !ok {
+					//log.Println(ov.Info())
+				} else {
+					if v != 23 {
+						log.Fatal("bad depth")
+					}
 				}
 
 				fmt.Fprintf(out, "%s\t%d\t%d\t%s\t%s\t%s\n", r.Chrom(), r.Start(), r.End(), ov.Ref(), ov.Alt(), ov.Info().String())
@@ -106,7 +123,7 @@ func benchmarkTabix(other string, ntimes int) {
 func benchmarkIrelate(other string, ntimes int) {
 
 	start := time.Now()
-	f := F
+	f := FS[0]
 	relatables := make([]irelate.RelatableChannel, ntimes+1)
 	for i := 0; i < ntimes; i++ {
 		exac, err := irelate.Streamer(f)
@@ -136,9 +153,14 @@ func benchmarkIrelate(other string, ntimes int) {
 
 func main() {
 
-	for _, n_query := range []int{100, 10000, 100000} {
+	var f string
+	for _, n_query := range []int{100, 2, 10000, 100000} {
 		for _, n_db := range []int{1, 2, 4, 8} {
-			f := fmt.Sprintf("intervals.%d.vcf", n_query)
+			if n_query == 2 {
+				f = "/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz"
+			} else {
+				f = fmt.Sprintf("intervals.%d.vcf", n_query)
+			}
 			benchmarkTabix(f, n_db)
 			//benchmarkIrelate(f, n_db)
 		}
