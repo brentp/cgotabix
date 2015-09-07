@@ -570,6 +570,21 @@ func (c *Variant) Ref() string {
 	return C.GoString(C.allele_i(c.v, 0))
 }
 
+func (t *Tabix) Relate(in chan interfaces.IPosition) chan []interfaces.IPosition {
+	out := make(chan []interfaces.IPosition, 0)
+	go func() {
+		for {
+			iv, more := <-in
+			if !more {
+				break
+			}
+			out <- t.Get(iv)
+		}
+		close(out)
+	}()
+	return out
+}
+
 func (t *Tabix) Get(q interfaces.IPosition) []interfaces.IPosition {
 	//cs := C.CString(fmt.Sprintf("%s:%d-%d", q.Chrom(), q.Start()+1, q.End()))
 	ch := C.CString(q.Chrom())
