@@ -19,12 +19,12 @@ import (
 
 //	"/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz",
 var FS = []string{
+	"/usr/local/src/gemini_install/data/gemini/data/clinvar_20150305.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5a.20130502.sites.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ESP6500SI.all.snps_indels.tidy.v2.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/GRCh37-gms-mappability.vcf.gz",
-	"/usr/local/src/gemini_install/data/gemini/data/clinvar_20150305.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/cosmic-v68-GRCh37.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/dbsnp.b141.20140813.hg19.tidy.vcf.gz",
 }
@@ -44,9 +44,15 @@ func benchmarkBix(other string, ntimes int) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	vcf := irelate.Vopen(or)
+	vcf := irelate.Vopen(or, nil)
 
 	out := bufio.NewWriter(ioutil.Discard)
+	/*
+		out, err := vcfgo.NewWriter(os.Stdout, vcf.Header)
+		if err != nil {
+			log.Fatal(err)
+		}
+	*/
 
 	n := 0
 	k := 0
@@ -159,9 +165,13 @@ func benchmarkTabix(other string, ntimes int) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	vcf := irelate.Vopen(or)
+	vcf := irelate.Vopen(or, nil)
 
 	out := bufio.NewWriter(ioutil.Discard)
+	/* out, err := vcfgo.NewWriter(os.Stdout, vcf.Header)
+	if err != nil {
+		log.Fatal(err)
+	} */
 
 	n := 0
 	k := 0
@@ -243,11 +253,11 @@ func benchmarkIrelate(other string, ntimes int) {
 	start := time.Now()
 	relatables := make([]irelate.RelatableChannel, ntimes+1)
 	for i := 0; i < ntimes; i++ {
-		exac, err := irelate.Streamer(FS[i], "")
+		db, err := irelate.Streamer(FS[i], "")
 		if err != nil {
 			log.Fatal(err)
 		}
-		relatables[i+1] = exac
+		relatables[i+1] = db
 	}
 
 	vcf, err := irelate.Streamer(other, "")
@@ -258,10 +268,14 @@ func benchmarkIrelate(other string, ntimes int) {
 	relatables[0] = vcf
 	n := 0
 
-	for v := range irelate.IRelate(irelate.CheckRelatedByOverlap, 0, irelate.Less, relatables...) {
+	for v := range irelate.IRelate(irelate.CheckRelatedByOverlap, 0, irelate.NaturalLessPrefix, relatables...) {
 		qstr := fmt.Sprintf("%s:%d-%d", v.Chrom(), v.Start(), v.End())
 		fmt.Fprintf(out, "%s\n", qstr)
-		n += len(v.Related())
+		for _, o := range v.Related() {
+			if interfaces.Same(o, v, true) {
+				n += 1
+			}
+		}
 	}
 	out.Flush()
 	log.Printf("irelate\t%d\t%s\t%.3f\t%d", ntimes, other, time.Since(start).Seconds(), n)
@@ -278,18 +292,19 @@ func main() {
 	defer pprof.StopCPUProfile()
 
 	var f string
-	//for _, n_query := range []int{100, 10000, 100000} {
-	for _, n_query := range []int{10000} {
+	for _, n_query := range []int{100, 1000, 10000, 100000} {
+		//for _, n_query := range []int{100000} {
 		//for _, n_db := range []int{1, 2, 4, 8} {
-		for _, n_db := range []int{1} {
+		for _, n_db := range []int{8} {
 			if n_query == 2 {
 				f = "/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz"
 			} else {
 				f = fmt.Sprintf("intervals.%d.vcf", n_query)
 			}
-			//benchmarkTabix(f, n_db)
+			//f = "v.vcf"
+			benchmarkTabix(f, n_db)
 			benchmarkBix(f, n_db)
-			//benchmarkIrelate(f, n_db)
+			benchmarkIrelate(f, n_db)
 		}
 	}
 }
