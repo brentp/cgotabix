@@ -108,8 +108,8 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/brentp/irelate"
 	"github.com/brentp/irelate/interfaces"
+	"github.com/brentp/irelate/parsers"
 	"github.com/brentp/xopen"
 )
 
@@ -336,6 +336,14 @@ func (i *INFO) String() string {
 	kstr := C.kstring_t{}
 	C.format_info(i.b, i.hdr, &kstr)
 	v := C.GoStringN(kstr.s, C.int(kstr.l))
+	C.free(unsafe.Pointer(kstr.s))
+	return v
+}
+
+func (i *INFO) Bytes() []byte {
+	kstr := C.kstring_t{}
+	C.format_info(i.b, i.hdr, &kstr)
+	v := C.GoBytes(unsafe.Pointer(kstr.s), C.int(kstr.l))
 	C.free(unsafe.Pointer(kstr.s))
 	return v
 }
@@ -573,11 +581,7 @@ func (c *Variant) Ref() string {
 func (t *Tabix) Relate(in chan interfaces.IPosition) chan []interfaces.IPosition {
 	out := make(chan []interfaces.IPosition, 0)
 	go func() {
-		for {
-			iv, more := <-in
-			if !more {
-				break
-			}
+		for iv := range in {
 			out <- t.Get(iv)
 		}
 		close(out)
@@ -609,7 +613,7 @@ func (t *Tabix) Get(q interfaces.IPosition) []interfaces.IPosition {
 			}
 			overlaps = append(overlaps, NewVariant(b, t.hdr, 1))
 		} else if t.typ == BED {
-			iv, err := irelate.IntervalFromBedLine(C.GoStringN(kstr.s, C.int(kstr.l)))
+			iv, err := parsers.IntervalFromBedLine(C.GoBytes(unsafe.Pointer(kstr.s), C.int(kstr.l)))
 			if err != nil {
 				log.Printf("error parsing %s:%s\n", C.GoStringN(kstr.s, C.int(kstr.l)), err)
 			}
@@ -627,11 +631,11 @@ func (t *Tabix) Get(q interfaces.IPosition) []interfaces.IPosition {
 
 // At takes a region like 1:45678-56789 and returns a channel on which
 // it sends a string for each line that falls in that interval.
-func (t *Tabix) At(region string) irelate.RelatableChannel {
+func (t *Tabix) At(region string) interfaces.RelatableChannel {
 	cs := C.CString(region)
 	defer C.free(unsafe.Pointer(cs))
 
-	out := make(irelate.RelatableChannel, 20)
+	out := make(interfaces.RelatableChannel, 20)
 	itr := C.tabix_itr_querys(t.tbx, cs)
 
 	go func() {

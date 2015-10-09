@@ -3,30 +3,30 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"runtime/pprof"
 	"time"
 
-	"github.com/biogo/hts/internal"
 	"github.com/brentp/bix"
 	"github.com/brentp/cgotabix"
 	"github.com/brentp/irelate"
 	"github.com/brentp/irelate/interfaces"
-	"github.com/brentp/vcfgo"
+	"github.com/brentp/irelate/parsers"
 	"github.com/brentp/xopen"
 )
 
 //	"/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz",
 var FS = []string{
-	"/usr/local/src/gemini_install/data/gemini/data/clinvar_20150305.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
-	"/usr/local/src/gemini_install/data/gemini/data/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5a.20130502.sites.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ESP6500SI.all.snps_indels.tidy.v2.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/clinvar_20150305.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/cosmic-v68-GRCh37.tidy.vcf.gz",
+	"/usr/local/src/gemini_install/data/gemini/data/ALL.wgs.phase3_shapeit2_mvncall_integrated_v5a.20130502.sites.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/ExAC.r0.3.sites.vep.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/GRCh37-gms-mappability.vcf.gz",
-	"/usr/local/src/gemini_install/data/gemini/data/cosmic-v68-GRCh37.tidy.vcf.gz",
 	"/usr/local/src/gemini_install/data/gemini/data/dbsnp.b141.20140813.hg19.tidy.vcf.gz",
 }
 
@@ -40,12 +40,19 @@ func benchmarkBix(other string, ntimes int) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		tbxs[i].AddInfoToHeader("XXX", "1", "Float", "XXX")
+		tbxs[i].AddInfoToHeader("many", "3", "Float", "XXX")
+		tbxs[i].AddInfoToHeader("manyi", "3", "Integer", "XXX")
+		tbxs[i].AddInfoToHeader("flag", "1", "Flag", "XXX")
 	}
 	or, err := xopen.Ropen(other)
 	if err != nil {
 		log.Fatal(err)
 	}
-	vcf := irelate.Vopen(or, nil)
+	vcf, err := parsers.Vopen(or, nil)
+	if err != nil {
+		log.Fatal("err")
+	}
 
 	out := bufio.NewWriter(ioutil.Discard)
 	/*
@@ -66,27 +73,7 @@ func benchmarkBix(other string, ntimes int) {
 		}
 
 		for _, tbx := range tbxs {
-			//for _, r := range tbx.Get(v) {
-			rdr, err := tbx.Query(v.Chrom(), int(v.Start()), int(v.End()), false)
-			if err != nil {
-				if err != internal.ErrInvalid {
-					log.Fatal(err)
-				} else {
-					continue
-				}
-			}
-			db := irelate.Vopen(rdr, vcf.Header)
-			db.AddInfoToHeader("XXX", "1", "Float", "XXX")
-			db.AddInfoToHeader("many", "3", "Float", "XXX")
-			db.AddInfoToHeader("manyi", "3", "Integer", "XXX")
-			db.AddInfoToHeader("flag", "1", "Flag", "XXX")
-			var r interfaces.IVariant
-			for {
-				r = db.Read()
-				if r == nil {
-					break
-				}
-				//sp := strings.Split(r, "\t")
+			for _, r := range tbx.Get(v) {
 
 				if !interfaces.Same(r, v, true) {
 					continue
@@ -102,7 +89,7 @@ func benchmarkBix(other string, ntimes int) {
 		}
 
 	}
-	out.Flush()
+	//out.Flush()
 	log.Printf("gobix\t%d\t%s\t%.3f\t%d", ntimes, other, time.Since(start).Seconds(), n)
 
 }
@@ -112,6 +99,7 @@ func doStuff(r interfaces.IVariant, n *int) interfaces.IVariant {
 	*n += 1
 	ov, ok := r.(interfaces.IVariant)
 	if !ok {
+		log.Println("not ok")
 		return nil
 	}
 	abool := *n%2 == 0
@@ -177,13 +165,17 @@ func benchmarkTabix(other string, ntimes int) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	vcf := irelate.Vopen(or, nil)
-
-	out := bufio.NewWriter(ioutil.Discard)
-	/* out, err := vcfgo.NewWriter(os.Stdout, vcf.Header)
+	vcf, err := parsers.Vopen(or, nil)
 	if err != nil {
 		log.Fatal(err)
-	} */
+	}
+
+	out := bufio.NewWriter(ioutil.Discard)
+	/*
+		out, err := vcfgo.NewWriter(os.Stdout, vcf.Header)
+		if err != nil {
+			log.Fatal(err)
+		}*/
 
 	n := 0
 	k := 0
@@ -225,9 +217,9 @@ func benchmarkTabix(other string, ntimes int) {
 func benchmarkIrelate(other string, ntimes int) {
 
 	start := time.Now()
-	relatables := make([]irelate.RelatableChannel, ntimes+1)
+	relatables := make([]interfaces.RelatableIterator, ntimes+1)
 	for i := 0; i < ntimes; i++ {
-		db, err := irelate.Streamer(FS[i], "")
+		db, err := irelate.Iterator(FS[i], "")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -238,7 +230,8 @@ func benchmarkIrelate(other string, ntimes int) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	vcf, err := vcfgo.NewReader(f, true)
+
+	vstream, vcf, err := parsers.VCFIterator(f)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -247,13 +240,19 @@ func benchmarkIrelate(other string, ntimes int) {
 	vcf.AddInfoToHeader("manyi", "3", "Integer", "XXX")
 	vcf.AddInfoToHeader("flag", "1", "Flag", "XXX")
 
-	vstream := irelate.StreamVCF(vcf)
-
 	out := bufio.NewWriter(ioutil.Discard)
 	relatables[0] = vstream
 	n := 0
+	iterator := irelate.IRelate(irelate.CheckRelatedByOverlap, 0, irelate.NaturalLessPrefix, relatables...)
 
-	for v := range irelate.IRelate(irelate.CheckRelatedByOverlap, 0, irelate.NaturalLessPrefix, relatables...) {
+	for {
+		v, err := iterator.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 		qstr := fmt.Sprintf("%s:%d-%d", v.Chrom(), v.Start(), v.End())
 		fmt.Fprintf(out, "%s\n", qstr)
 		for _, o := range v.Related() {
@@ -280,16 +279,12 @@ func main() {
 	for _, n_query := range []int{100, 1000, 10000, 100000} {
 		//for _, n_query := range []int{100000} {
 		//for _, n_db := range []int{1, 2, 4, 8} {
-		for _, n_db := range []int{1} {
-			if n_query == 2 {
-				f = "/media/brentp/ffd28ae3-3dca-4f44-8aed-1685a55661f8/uw-course/thu/data/data-diseaseX/disease_x.merged.jointCalled.vcf.ann.Recalibrated.Merged.HC.vcf.VT.vep.vcf.gz"
-			} else {
-				f = fmt.Sprintf("intervals.%d.vcf", n_query)
-			}
+		f = fmt.Sprintf("intervals.%d.vcf", n_query)
+		for _, n_db := range []int{4} {
 			//f = "v.vcf"
 			benchmarkTabix(f, n_db)
 			benchmarkBix(f, n_db)
-			benchmarkIrelate(f, n_db)
+			//benchmarkIrelate(f, n_db)
 		}
 	}
 }
